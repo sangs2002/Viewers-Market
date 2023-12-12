@@ -1,54 +1,60 @@
+from datetime import datetime
+from mysql.connector import IntegrityError  # Assuming you are using MySQL
+
 from sql_connection import get_sql_connection
 
+def insert_order(connection, order):
+    try:
+        cursor = connection.cursor()
 
-def get_all_products(connection):
-    cursor = connection.cursor()
+        order_query = "INSERT INTO orders (customer_name, total, datetime) VALUES (%s, %s, %s)"
+        order_data = (order['customer_name'], order['Grand_Total'], datetime.now())
+        cursor.execute(order_query, order_data)
 
-    query = (
-        "SELECT gs.products.product_id, gs.products.name, gs.products.uom_id, "
-        "gs.products.price_per_unit, gs.uom.uom_name "
-        "FROM gs.products INNER JOIN gs.uom ON gs.products.uom_id = gs.uom.uom_id"
-    )
+        order_id = cursor.lastrowid
+        order_details_query = "INSERT INTO order_details (order_id, product_id, quantity, total_price) VALUES (%s, %s, %s, %s)"
+        order_details_data = []
 
-    cursor.execute(query)
+        for order_details_record in order['order_details']:
+            order_details_data.append([
+                order_id,
+                int(order_details_record['product_id']),
+                float(order_details_record['quantity']),
+                float(order_details_record['total_price'])
+            ])
+        cursor.executemany(order_details_query, order_details_data)
+        connection.commit()
+        return order_id
+    except IntegrityError as e:
+        connection.rollback()
+        if "Duplicate entry" in str(e):
+            print("Error: Duplicate entry. You may want to handle this case.")
+        else:
+            print(f"Error: {e}")
+        return None
+    finally:
+        cursor.close()
 
-    response = []
-
-    for (product_id, name, uom_id, price_per_unit, uom_name) in cursor:
-        response.append({
-            'product_id': product_id,
-            'name': name,
-            'uom_id': uom_id,
-            'price_per_unit': price_per_unit,
-            'uom_name': uom_name
+if __name__ == '__main__':
+    connection = get_sql_connection()
+    if connection:
+        order_id = insert_order(connection, {
+            'customer_name': 'arun',
+            'Grand_Total': 700,
+            'datetime': datetime.now(),
+            'order_details': [
+                {
+                    'product_id': 1,
+                    'quantity': 2,
+                    'total_price': 50
+                },
+                {
+                    'product_id': 3,
+                    'quantity': 1,
+                    'total_price': 100
+                },
+            ]
         })
 
-    return response
-
-
-def insert_new_product(connection, product):
-    cursor = connection.cursor()
-    query = "INSERT INTO products (name, uom_id, price_per_unit) VALUES (%s, %s, %s)"
-    data = (product['product_name'], product['uom_id'], product['price_per_unit'])
-    cursor.execute(query, data)
-    connection.commit()
-
-    return cursor.lastrowid
-
-def delete_product(connection, product_id):
-   cursor=connection.cursor()
-   query=("DELETE FROM PRODUCTS WHERE PRODUCT_ID="+ str(product_id))
-   cursor.execute(query)
-   connection.commit()
-
-
-if __name__ == "__main__":
-    connection = get_sql_connection()
-
-    # Example usage of insert_new_product
-
-    print(delete_product(connection,13))
-
-    # Example usage of get_all_products
-    products = get_all_products(connection)
-
+        if order_id is not None:
+            print(f"Order inserted successfully with ID: {order_id}")
